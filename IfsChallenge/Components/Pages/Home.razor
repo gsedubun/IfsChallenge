@@ -1,7 +1,5 @@
 ﻿@page "/"
 @using System.Text.Json
-@using Microsoft.AspNetCore.SignalR.Protocol
-@using System.Collections
 @inject IHttpClientFactory clientFactory
 @rendermode InteractiveServer
 
@@ -38,18 +36,18 @@
                 Result  @cdIndex of @totalCount candidates
             </div>
             <div class="card-body">
+                @if (isLoading)
+                {
+                    <em>Loading...</em>
 
+                }
                 @if (totalCount == 0)
                 {
                     <p>
                         <em>no matching candidates</em>
                     </p>
                 }
-                else if (cdIndex == totalCount)
-                {
-                    <em>no more data</em>
-                }
-                else if (candidates.Count != 0)
+                else if (showedCandidate != null)
                 {
                     <label>@showedCandidate.fullName</label>
                     <br />
@@ -78,17 +76,11 @@
                         </tbody>
                     </table>
                 }
-                else
+                else if (cdIndex > candidates.Count)
                 {
                     <p>
-                        @if (cdIndex > candidates.Count)
-                        {
+                        
                             <em>no more matching candidates</em>
-                        }
-                        else
-                        {
-                            <em>Loading...</em>
-                        }
                     </p>
 
                 }
@@ -132,8 +124,9 @@
 </div>
 @code {
     private int cdIndex = 0, yoe = 0, totalCount = 0;
+    bool isLoading = false;
     private string techId = "";
-    private Candidate? showedCandidate = new Candidate();
+    private Candidate? showedCandidate;
     private Stack<Candidate>? candidates = new Stack<Candidate>();
     private List<Technology>? technologies = new List<Technology>();
     private Stack<Candidate> acceptedCandidates = new Stack<Candidate>();
@@ -191,38 +184,35 @@
     }
     private bool HasNext()
     {
-        if (totalCount == 0)
-        {
-            return true;
-        }
-        return !(cdIndex < totalCount);
+        return !(candidates.Count>0);
     }
     private void Accept()
     {
-        acceptedCandidates.Push(showedCandidate);
-        if (cdIndex < totalCount)
+       if (candidates.Count>0)
         {
-            cdIndex++;
-            showedCandidate = candidates.Pop();
+            acceptedCandidates.Push(candidates.Pop());
+            showedCandidate = candidates.FirstOrDefault();
+            if(showedCandidate!=null)
+                cdIndex++;
         }
-        StateHasChanged();
+
     }
 
     private void Denied()
     {
-        rejectedCandidates.Push(showedCandidate);
-        if (cdIndex < totalCount)
+        if (candidates.Count > 0)
         {
-            cdIndex++;
-            showedCandidate = candidates.Pop();
+            rejectedCandidates.Push(candidates.Pop());
+            showedCandidate = candidates.FirstOrDefault() ;
+            if (showedCandidate != null)
+                cdIndex++;
         }
 
-        StateHasChanged();
     }
 
     private async Task Search()
     {
-
+        isLoading = true;
         List<Candidate> tempCandidates =new List<Candidate>();
         var reqCandidate = new HttpRequestMessage(HttpMethod.Get,
             "candidates");
@@ -234,23 +224,33 @@
                     <List<Candidate>>(responseStream);
         }
         
-        var acceptedIds = acceptedCandidates.Select(x => x.candidateId).ToList();
-        var rejectedIds = rejectedCandidates.Select(x => x.candidateId).ToList();
+        var acceptedIds = acceptedCandidates.Select(x => x.email).ToList();
+        var rejectedIds = rejectedCandidates.Select(x => x.email).ToList();
          candidates = new Stack<Candidate>( tempCandidates.Where(x => 
-             acceptedIds.All(y => y != x.candidateId) &&
-             rejectedIds.All(y => y != x.candidateId) &&
+             !acceptedIds.Contains(x.email) &&
+             !rejectedIds.Contains(x.email) &&
              x.experience.Any(y => y.technologyId == techId && y.yearsOfExperience == yoe))
+             .Distinct()
+             .OrderBy(x=>x.fullName)
             .ToList());
         if (candidates.Count > 0)
         {
-            totalCount = candidates.Count - 1;
+            totalCount = candidates.Count;
             if (candidates.Count == 1)
                 totalCount = 1;
-            cdIndex = 0;
-            
-            showedCandidate = candidates.OrderBy(x => x.fullName).ElementAt(cdIndex);
+            cdIndex = 1;
+            showedCandidate = candidates.First();
 
         }
+        else
+        {
+            showedCandidate = null;
+            totalCount = 0;
+            cdIndex = 0;
+        }
+        Console.WriteLine(JsonSerializer.Serialize(candidates));
+        isLoading = false;
+        candidates.TrimExcess();
         StateHasChanged();
     }
 
